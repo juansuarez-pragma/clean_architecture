@@ -42,7 +42,7 @@ class _SplashViewState extends State<SplashView> {
       } else if (mounted) {
         _goto(Routes.signIn);
       }
-    }
+    } else {}
   }
 
   void _goto(String routeName) {

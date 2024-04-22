@@ -1,33 +1,31 @@
 import 'dart:convert';
-import 'dart:io';
-
-import 'package:http/http.dart';
 
 import '../../../domain/either.dart';
 import '../../../domain/enums.dart';
+import '../../http/http.dart';
 
 class AuthenticationAPI {
-  AuthenticationAPI(this._client);
+  AuthenticationAPI(this._http);
 
-  final Client _client;
-  final _baseUrl = 'https://api.themoviedb.org/3';
-  final _apikey = 'cd64d88080c3955355139791bda28f8c';
+  final Http _http;
 
-  Future<String?> createRequestToken() async {
-    try {
-      final response = await _client.get(
-        Uri.parse('$_baseUrl/authentication/token/new?api_key=$_apikey'),
-      );
+  Future<Either<SignInFailure, String>> createRequestToken() async {
+    final result = await _http.request(
+      '/authentication/token/new',
+    );
 
-      if (response.statusCode == 200) {
-        final json = Map<String, dynamic>.from(jsonDecode(response.body));
-
-        return json['request_token'];
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
+    return result.when(
+      (failure) {
+        if (failure.exception is NetWorkException) {
+          return Either.left(SignInFailure.network);
+        }
+        return Either.left(SignInFailure.unknown);
+      },
+      (responseBody) {
+        final json = Map<String, dynamic>.from(jsonDecode(responseBody));
+        return Either.right(json['request_token']);
+      },
+    );
   }
 
   Future<Either<SignInFailure, String>> createSessionWithLogin({
@@ -35,64 +33,56 @@ class AuthenticationAPI {
     required String password,
     required String requestToken,
   }) async {
-    try {
-      final response = await _client.post(
-        Uri.parse(
-          '$_baseUrl/authentication/token/validate_with_login?api_key=$_apikey',
-        ),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(
-          {
-            'username': 'JuanCarlosSuarezMarin',
-            'password': 'sherlock0508',
-            'request_token': 'adb167c9fc093a9bdf49398086f20a5e5d5a3795'
-          },
-        ),
-      );
+    final result = await _http.request(
+        '/authentication/token/validate_with_login',
+        method: HttpMethod.post,
+        body: {
+          'username': userName,
+          'password': password,
+          'request_token': requestToken
+        });
 
-      switch (response.statusCode) {
-        case 200:
-          final json = Map<String, dynamic>.from(jsonDecode(response.body));
-
-          final newRequestToken = json['request_token'] as String;
-          return Either.right(newRequestToken);
-
-        case 401:
-          return Either.left(SignInFailure.unauthorized);
-        case 404:
-          return Either.left(SignInFailure.notFound);
-        default:
-          return Either.left(SignInFailure.unknown);
+    return result.when((failure) {
+      final statusCode = failure.statusCode;
+      if (statusCode != null) {
+        switch (statusCode) {
+          case 401:
+            return Either.left(SignInFailure.unauthorized);
+          case 404:
+            return Either.left(SignInFailure.notFound);
+          default:
+            return Either.left(SignInFailure.unknown);
+        }
       }
-    } catch (exception) {
-      if (exception is SocketException) {
-        Either.left(SignInFailure.network);
+
+      if (failure.exception is NetWorkException) {
+        return Either.left(SignInFailure.network);
       }
       return Either.left(SignInFailure.unknown);
-    }
+    }, (responseBody) {
+      final json = Map<String, dynamic>.from(jsonDecode(responseBody));
+
+      final newRequestToken = json['request_token'] as String;
+      return Either.right(newRequestToken);
+    });
   }
 
   Future<Either<SignInFailure, String>> createSession(
       String requestToken) async {
-    try {
-      final response = await _client.post(
-          Uri.parse('$_baseUrl/authentication/session/new?api_key=$_apikey'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'request_token': requestToken,
-          }));
+    final result = await _http
+        .request('/authentication/session/new', method: HttpMethod.post, body: {
+      'request_token': requestToken,
+    });
 
-      if (response.statusCode == 200) {
-        final json = Map<String, dynamic>.from(jsonDecode(response.body));
-        final sessionId = json['session_id'] as String;
-        return Either.right(sessionId);
-      }
-      return Either.left(SignInFailure.unknown);
-    } catch (exception) {
-      if (exception is SocketException) {
+    return result.when((failure) {
+      if (failure.exception is NetWorkException) {
         return Either.left(SignInFailure.network);
       }
       return Either.left(SignInFailure.unknown);
-    }
+    }, (responseBody) {
+      final json = Map<String, dynamic>.from(jsonDecode(responseBody));
+      final sessionId = json['session_id'] as String;
+      return Either.right(sessionId);
+    });
   }
 }
